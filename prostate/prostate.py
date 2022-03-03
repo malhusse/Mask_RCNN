@@ -12,7 +12,7 @@ Usage: import the module (see Jupyter notebooks for examples), or run from
     # Train a new model starting from ImageNet weights.
     python3 prostate.py train --dataset=/path/to/mri/data --model=imagenet 
     e.g. python prostate.py train --dataset=/Users/mo/medphys/prostate/mri_data/mrcnn_data/images/ --weights=imagenet --logs=logs
-
+    windows python prostate.py train --dataset=C:\CLUSTERDATA\BIOMARKERS\RP\mrcnn_data\images --weights=imagenet --logs=logs
     # Continue training a model that you had trained earlier
     python3 prostate.py train --dataset=/path/to/mri/data --model=/path/to/weights.h5
 
@@ -34,7 +34,7 @@ import skimage.io
 import logging
 
 # Root directory of the project
-ROOT_DIR = os.path.abspath("../../")
+ROOT_DIR = os.path.abspath("../")
 
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
@@ -43,7 +43,7 @@ from mrcnn import model as modellib, utils
 
 # Directory to save logs and model checkpoints, if not provided
 # through the command line argument --logs
-DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+DEFAULT_LOGS_DIR = os.path.join(os.getcwd(), "logs")
 
 ############################################################
 #  Configurations
@@ -57,43 +57,72 @@ class ProstateConfig(Config):
     # Give the configuration a recognizable name
     NAME = "prostate"
 
-    # We use a GPU with 12GB memory, which can fit two images.
-    # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 1
-
     # Uncomment to train on 3 GPUs on cluster
-    # GPU_COUNT = 3
+    GPU_COUNT = 3
+
+    # We use 3 GPUs with 48GB memory each
+    # Adjust down if you use a smaller GPU.
+    IMAGES_PER_GPU = 2
+
+    # Number of training steps per epoch
+    STEPS_PER_EPOCH = 125
+
+    # Backbone network architecture
+    BACKBONE = "resnet101"
+
+    # The strides of each layer of the FPN Pyramid. These values
+    # are based on a Resnet101 backbone.
+    BACKBONE_STRIDES = [4, 8, 16, 32, 64]
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 3  # background + prostate + pz + roi
 
-    # Number of training steps per epoch
-    STEPS_PER_EPOCH = 1
-
-    # Skip detections with < 50% confidence
-    DETECTION_MIN_CONFIDENCE = 0.50
-
-    # Our images have 4 channels, [T2, DCE, ADC, BVAL]
-    IMAGE_CHANNEL_COUNT = 4
-
-    # The mean pixel of our images..?
-    MEAN_PIXEL = np.array([97.5, 85.5, 93.5, 88.5])
-
-    BACKBONE = "resnet50"
-
     # Length of square anchor side in pixels
-    RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)
-
-    # ROIs kept after non-maximum supression (training and inference)
-    POST_NMS_ROIS_TRAINING = 1000
-    POST_NMS_ROIS_INFERENCE = 2000
+    RPN_ANCHOR_SCALES = (16, 32, 64, 128, 256)
 
     # Non-max suppression threshold to filter RPN proposals.
     # You can increase this during training to generate more propsals.
     RPN_NMS_THRESHOLD = 0.7
 
     # How many anchors per image to use for RPN training
-    RPN_TRAIN_ANCHORS_PER_IMAGE = 64
+    # RPN_TRAIN_ANCHORS_PER_IMAGE = 64 # default 256
+
+    # ROIs kept after non-maximum supression (training and inference)
+    POST_NMS_ROIS_TRAINING = 200
+    POST_NMS_ROIS_INFERENCE = 100
+
+    # If enabled, resizes instance masks to a smaller size to reduce
+    # memory load. Recommended when using high-resolution images.
+    USE_MINI_MASK = True
+    MINI_MASK_SHAPE = (56, 56)  # (height, width) of the mini-mask
+
+    # Input image resizing
+    # Generally, use the "square" resizing mode for training and predicting
+    # and it should work well in most cases. In this mode, images are scaled
+    # up such that the small side is = IMAGE_MIN_DIM, but ensuring that the
+    # scaling doesn't make the long side > IMAGE_MAX_DIM. Then the image is
+    # padded with zeros to make it a square so multiple images can be put
+    # in one batch.
+    # Available resizing modes:
+    # none:   No resizing or padding. Return the image unchanged.
+    # square: Resize and pad with zeros to get a square image
+    #         of size [max_dim, max_dim].
+    # pad64:  Pads width and height with zeros to make them multiples of 64.
+    #         If IMAGE_MIN_DIM or IMAGE_MIN_SCALE are not None, then it scales
+    #         up before padding. IMAGE_MAX_DIM is ignored in this mode.
+    #         The multiple of 64 is needed to ensure smooth scaling of feature
+    #         maps up and down the 6 levels of the FPN pyramid (2**6=64).
+    # crop:   Picks random crops from the image. First, scales the image based
+    #         on IMAGE_MIN_DIM and IMAGE_MIN_SCALE, then picks a random crop of
+    #         size IMAGE_MIN_DIM x IMAGE_MIN_DIM. Can be used in training only.
+    #         IMAGE_MAX_DIM is not used in this mode.
+    IMAGE_RESIZE_MODE = "none"
+
+    # Our images have 4 channels, [T2, DCE, ADC, BVAL]
+    IMAGE_CHANNEL_COUNT = 4
+
+    # The mean pixel of our images
+    MEAN_PIXEL = np.array([97.75, 84.46, 88.44, 89.76])
 
     # Number of ROIs per image to feed to classifier/mask heads
     # The Mask RCNN paper uses 512 but often the RPN doesn't generate
@@ -102,18 +131,33 @@ class ProstateConfig(Config):
     # the RPN NMS threshold.
     TRAIN_ROIS_PER_IMAGE = 128
 
+    # Percent of positive ROIs used to train classifier/mask heads
+    ROI_POSITIVE_RATIO = 0.15
+
+    # Shape of output mask
+    # To change this you also need to change the neural network mask branch
+    # MASK_SHAPE = [56, 56]
+
     # Maximum number of ground truth instances to use in one image
-    MAX_GT_INSTANCES = 10
+    MAX_GT_INSTANCES = 8
 
     # Max number of final detections per image
-    DETECTION_MAX_INSTANCES = 10
-    
-    IMAGE_RESIZE_MODE = "none"
-    IMAGE_MIN_DIM = 320
-    IMAGE_MAX_DIM = 320
+    DETECTION_MAX_INSTANCES = 8
 
-    USE_MINI_MASK = False
+    # Loss weights for more precise optimization.
+    # Can be used for R-CNN training setup.
+    LOSS_WEIGHTS = {
+        "rpn_class_loss": 1.,
+        "rpn_bbox_loss": 3.,
+        "mrcnn_class_loss": 1.,
+        "mrcnn_bbox_loss": 1.,
+        "mrcnn_mask_loss": 1.
+    }
 
+class ProstateInferenceConfig(ProstateConfig):
+    # Set batch size to 1 to run one image at a time
+    GPU_COUNT = 1
+    IMAGES_PER_GPU = 1
 
 ############################################################
 #  Dataset
@@ -167,20 +211,20 @@ class ProstateDataset(utils.Dataset):
 
         pr = list(filter(lambda x: 'pr.' in x, masks))
         if pr:
-            m = skimage.io.imread(pr[0]).astype(np.bool)
+            m = skimage.io.imread(pr[0]).astype(bool)
             mask_list.append(m)
             labels.append(1)
 
         pz = list(filter(lambda x: 'pz.' in x, masks))
         if pz:
-            m = skimage.io.imread(pz[0]).astype(np.bool)
+            m = skimage.io.imread(pz[0]).astype(bool)
             mask_list.append(m)
             labels.append(2)
 
         rois = list(filter(lambda x: 'roi.' in x, masks))
         # this loop should not do anything if rois is empty
         for roi in rois:
-            m = skimage.io.imread(roi).astype(np.bool)
+            m = skimage.io.imread(roi).astype(bool)
             mask_list.append(m)
             labels.append(3)
 
@@ -196,7 +240,6 @@ class ProstateDataset(utils.Dataset):
         else:
             super(self.__class__, self).image_reference(image_id)
 
-
     def load_image(self, image_id):
         """Load the specified image and return a [H,W,4] Numpy array. 
            Overload since our pictures have 4 channels
@@ -204,6 +247,7 @@ class ProstateDataset(utils.Dataset):
         # Load image
         image = skimage.io.imread(self.image_info[image_id]['path'])
         return image
+
 
 def train(model):
     """Train the model."""
@@ -221,45 +265,43 @@ def train(model):
     # Image Augmentation
     # Right/Left flip 50% of the time
     # TODO: ADD MORE
-    augmentation = imgaug.augmenters.Fliplr(0.5)
+    augmentation = imgaug.augmenters.SomeOf((0, 2), [
+        imgaug.augmenters.Fliplr(0.5),
+        imgaug.augmenters.Flipud(0.5),
+        imgaug.augmenters.OneOf([imgaug.augmenters.Affine(rotate=90),
+                      imgaug.augmenters.Affine(rotate=180),
+                      imgaug.augmenters.Affine(rotate=270)]),
+        imgaug.augmenters.Multiply((0.8, 1.5))
+    ])
 
     # *** This training schedule is an example. Update to your needs ***
     # Training - Stage 1
-    print("Training full network")
+    print("Training backbone resenet only")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
                 epochs=20,
-                layers='all',
+                layers='backbone',
                 augmentation=augmentation)
 
     print("Training network heads")
     model.train(dataset_train, dataset_val,
-            learning_rate=config.LEARNING_RATE,
-            epochs=20,
-            layers='heads',
-            augmentation=augmentation)
-
-    # Training - Stage 3
-    # Finetune layers from ResNet stage 4 and up
-    print("Fine tune Resnet stage 4 and up")
-    model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=20,
-                layers='4+',
+                epochs=40,
+                layers='heads',
                 augmentation=augmentation)
 
-    # Training - Stage 4
-    # Fine tune all layers
+    # Training - Stage 3
+    # Finetune all layers
     print("Fine tune all layers")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE / 10,
-                epochs=20,
+                epochs=60,
                 layers='all',
                 augmentation=augmentation)
-
 ############################################################
 #  Training
 ############################################################
+
 
 if __name__ == '__main__':
     import argparse
@@ -270,10 +312,10 @@ if __name__ == '__main__':
     parser.add_argument("command",
                         metavar="<command>",
                         help="'train' or 'eval'")
-    parser.add_argument('--dataset', required=True,
+    parser.add_argument('--dataset', required=False, default='/Users/mo/medphys/prostate/mri_data/mrcnn_data/images/',
                         metavar="/path/to/mri/dataset/",
                         help='Directory of the MRI dataset')
-    parser.add_argument('--weights', required=True,
+    parser.add_argument('--weights', required=False, default='imagenet',
                         metavar="/path/to/weights.h5",
                         help="Path to weights .h5 file or 'imagenet'")
     parser.add_argument('--logs', required=False,
@@ -323,7 +365,7 @@ if __name__ == '__main__':
     # Load weights
     print("Loading weights ", weights_path)
     if args.weights.lower() == "imagenet":
-        # TODO excluse layer that assume 3 channel input
+        # exclude layer that assume 3 channel input
         model.load_weights(weights_path, by_name=True, exclude=["conv1"])
     else:
         model.load_weights(weights_path, by_name=True)

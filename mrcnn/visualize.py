@@ -84,7 +84,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
                       scores=None, title="",
                       figsize=(16, 16), ax=None,
                       show_mask=True, show_bbox=True,
-                      colors=None, captions=None):
+                      colors=None, captions=None, channel=None, cmap='viridis'):
     """
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
     masks: [height, width, num_instances]
@@ -144,7 +144,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
         else:
             caption = captions[i]
         ax.text(x1, y1 + 8, caption,
-                color='w', size=11, backgroundcolor="none")
+                color='w', size=14, backgroundcolor="r")
 
         # Mask
         mask = masks[:, :, i]
@@ -162,7 +162,10 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             verts = np.fliplr(verts) - 1
             p = Polygon(verts, facecolor="none", edgecolor=color)
             ax.add_patch(p)
-    ax.imshow(masked_image.astype(np.uint8))
+    if channel is not None:
+        ax.imshow(masked_image[:, :, channel].astype(np.uint8), cmap=cmap)
+    else:
+        ax.imshow(masked_image.astype(np.uint8), cmap=cmap)
     if auto_show:
         plt.show()
 
@@ -172,7 +175,8 @@ def display_differences(image,
                         pred_box, pred_class_id, pred_score, pred_mask,
                         class_names, title="", ax=None,
                         show_mask=True, show_box=True,
-                        iou_threshold=0.5, score_threshold=0.5):
+                        iou_threshold=0.5, score_threshold=0.5,
+                        channel=None, cmap='virdis'):
     """Display ground truth and prediction instances on the same image."""
     # Match predictions to ground truth
     gt_match, pred_match, overlaps = utils.compute_matches(
@@ -202,10 +206,10 @@ def display_differences(image,
         class_names, scores, ax=ax,
         show_bbox=show_box, show_mask=show_mask,
         colors=colors, captions=captions,
-        title=title)
+        title=title, channel=channel, cmap=cmap)
 
 
-def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):
+def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10, channel=None, cmap='viridis'):
     """
     anchors: [n, (y1, x1, y2, x2)] list of anchors in image coordinates.
     proposals: [n, 4] the same anchors but refined to fit objects better.
@@ -257,7 +261,10 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
                                   [:4].astype(np.int32), image.shape)
             masked_image = apply_mask(masked_image, m, color)
 
-    ax.imshow(masked_image)
+    if channel is not None:
+        ax.imshow(masked_image[:, :, channel], cmap=cmap)
+    else:
+        ax.imshow(masked_image, cmap=cmap)
 
     # Print stats
     print("Positive ROIs: ", class_ids[class_ids > 0].shape[0])
@@ -279,7 +286,7 @@ def draw_box(image, box, color):
     return image
 
 
-def display_top_masks(image, mask, class_ids, class_names, limit=4):
+def display_top_masks(image, mask, class_ids, class_names, limit=4, cmap='viridis'):
     """Display the given image and the top few class masks."""
     to_display = []
     titles = []
@@ -299,7 +306,8 @@ def display_top_masks(image, mask, class_ids, class_names, limit=4):
         m = np.sum(m * np.arange(1, m.shape[-1] + 1), -1)
         to_display.append(m)
         titles.append(class_names[class_id] if class_id != -1 else "-")
-    display_images(to_display, titles=titles, cols=limit + 1, cmap="Blues_r")
+
+    display_images(to_display, titles=titles, cols=limit + 1, cmap=cmap)
 
 
 def plot_precision_recall(AP, precisions, recalls):
@@ -358,7 +366,7 @@ def plot_overlaps(gt_class_ids, pred_class_ids, pred_scores,
 
 def draw_boxes(image, boxes=None, refined_boxes=None,
                masks=None, captions=None, visibilities=None,
-               title="", ax=None):
+               title="", ax=None, channel=None, cmap='gray'):
     """Draw bounding boxes and segmentation masks with different
     customizations.
 
@@ -455,7 +463,11 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
                 verts = np.fliplr(verts) - 1
                 p = Polygon(verts, facecolor="none", edgecolor=color)
                 ax.add_patch(p)
-    ax.imshow(masked_image.astype(np.uint8))
+
+    if channel is not None:
+        ax.imshow(masked_image[:, :, channel].astype(np.uint8), cmap=cmap)
+    else:
+        ax.imshow(masked_image.astype(np.uint8), cmap=cmap)
 
 
 def display_table(table):
